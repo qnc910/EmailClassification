@@ -1,0 +1,130 @@
+services:
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_HEAP_OPTS: "-Xmx512M -Xms512M"
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 123456
+      POSTGRES_DB: emaildb
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  greenmail:
+    image: greenmail/standalone:2.1.0
+    container_name: greenmail
+    ports:
+      - "3025:3025" # SMTP
+      - "3143:3143" # IMAP
+      - "8081:8080"
+    environment:
+      - JAVA_OPTS=-Dgreenmail.verbose -Dgreenmail.users=user:pass@localhost
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  backend:
+    build: ./backend
+    container_name: backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./uploads:/app/uploads
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - POSTGRES_HOST=postgres
+      - UPLOAD_DIR=/app/uploads
+    depends_on:
+      - kafka
+      - postgres
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  frontend:
+    build: ./frontend
+    container_name: frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  spark-streaming:
+    build: ./spark
+    container_name: spark-streaming
+    restart: unless-stopped
+    depends_on:
+      - kafka
+      - postgres
+    volumes:
+      - ./spark:/opt/bitnami/spark/scripts
+      - ./models:/opt/bitnami/spark/models
+    command: >
+      spark-submit 
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.postgresql:postgresql:42.7.2 
+      /opt/bitnami/spark/scripts/streaming_classifier.py
+    deploy:
+      resources:
+        limits:
+          memory: 1800M
+
+  spark-batch:
+    build: ./spark
+    container_name: spark-batch
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    volumes:
+      - ./spark:/opt/bitnami/spark/scripts
+      - ./models:/opt/bitnami/spark/models
+      - ./uploads:/opt/bitnami/spark/uploads
+    command: >
+      spark-submit 
+      --packages org.postgresql:postgresql:42.7.2 
+      /opt/bitnami/spark/scripts/batch_processor.py
+    deploy:
+      resources:
+        limits:
+          memory: 1200M
