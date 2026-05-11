@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS users (
     username VARCHAR(100) UNIQUE NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
+    role VARCHAR(20) DEFAULT 'user',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -12,6 +13,7 @@ CREATE TABLE IF NOT EXISTS emails (
     recipient VARCHAR(255),
     subject TEXT,
     body TEXT,
-    is_spam BOOLEAN DEFAULT FALSE,
+    category VARCHAR(50) DEFAULT 'inbox',
+    is_read BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

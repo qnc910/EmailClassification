@@ -1,35 +1,5 @@
 services:
 
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    container_name: zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-
-  kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    container_name: kafka
-    depends_on:
-      - zookeeper
-    ports:
-      - "9092:9092"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_HEAP_OPTS: "-Xmx512M -Xms512M"
-    deploy:
-      resources:
-        limits:
-          memory: 1024M
-
   postgres:
     image: postgres:15-alpine
     container_name: postgres
@@ -37,6 +7,11 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: 123456
       POSTGRES_DB: emaildb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d emaildb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     ports:
       - "5432:5432"
     volumes:
@@ -68,12 +43,11 @@ services:
     volumes:
       - ./uploads:/app/uploads
     environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
       - POSTGRES_HOST=postgres
       - UPLOAD_DIR=/app/uploads
     depends_on:
-      - kafka
-      - postgres
+      postgres:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -96,14 +70,14 @@ services:
     container_name: spark-streaming
     restart: unless-stopped
     depends_on:
-      - kafka
-      - postgres
+      postgres:
+        condition: service_healthy
     volumes:
       - ./spark:/opt/bitnami/spark/scripts
       - ./models:/opt/bitnami/spark/models
     command: >
       spark-submit 
-      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.postgresql:postgresql:42.7.2 
+      --packages org.postgresql:postgresql:42.7.2 
       /opt/bitnami/spark/scripts/streaming_classifier.py
     deploy:
       resources:
@@ -115,7 +89,8 @@ services:
     container_name: spark-batch
     restart: unless-stopped
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     volumes:
       - ./spark:/opt/bitnami/spark/scripts
       - ./models:/opt/bitnami/spark/models

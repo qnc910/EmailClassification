@@ -3,7 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts';
 import {
-  Mail, ShieldAlert, Send, BarChart2, LogOut, Plus, RefreshCw, FileText, User, Lock, Mail as MailIcon
+  Mail, ShieldAlert, Send, BarChart2, LogOut, Plus, RefreshCw, FileText, User, Lock, Mail as MailIcon, ArrowLeft
 } from 'lucide-react';
 import './App.css';
 
@@ -19,8 +19,9 @@ function App() {
   // Data State
   const [emails, setEmails] = useState([]);
   const [selectedEmail, setSelectedEmail] = useState(null);
-  const [stats, setStats] = useState({ ham: 0, spam: 0, total: 0 });
+  const [stats, setStats] = useState({ ham: 0, spam: 0, ads: 0, social: 0, total: 0 });
   const [loading, setLoading] = useState(false);
+  const getToken = () => localStorage.getItem('token');
 
   // Form State
   const [authForm, setAuthForm] = useState({ username: '', email: '', password: '' });
@@ -33,7 +34,7 @@ function App() {
   // --- Auth Logic ---
   const handleAuth = async (e) => {
     e.preventDefault();
-    
+
     // Validate empty fields
     if (view === 'auth-register' && !authForm.username) {
       alert("Vui lòng nhập tên hiển thị!");
@@ -83,10 +84,25 @@ function App() {
   const parseDate = (dateStr) => {
     if (!dateStr) return new Date();
     // Ensure the date is treated as UTC if it doesn't have a timezone suffix
-    const normalized = (dateStr.endsWith('Z') || dateStr.includes('+')) 
-      ? dateStr 
+    const normalized = (dateStr.endsWith('Z') || dateStr.includes('+'))
+      ? dateStr
       : `${dateStr.replace(' ', 'T')}Z`;
     return new Date(normalized);
+  };
+
+  const formatEmailTime = (dateStr) => {
+    const date = parseDate(dateStr);
+    const now = new Date();
+    const diffInMs = now - date;
+    const oneDayInMs = 24 * 60 * 60 * 1000;
+
+    if (diffInMs > oneDayInMs) {
+      // More than 1 day: show date (dd/mm)
+      return date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+    } else {
+      // Less than 1 day: show time (hh:mm)
+      return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    }
   };
 
   // --- Email Logic ---
@@ -96,7 +112,9 @@ function App() {
       const endpoint = folder === 'sent'
         ? `${API_BASE}/emails?sender=${user.email}`
         : `${API_BASE}/emails?recipient=${user.email}`;
-      const res = await fetch(endpoint);
+      const res = await fetch(endpoint, {
+        headers: { 'Authorization': `Bearer ${getToken()}` }
+      });
       const data = await res.json();
       setEmails(data);
     } catch (err) {
@@ -106,7 +124,9 @@ function App() {
 
   const fetchStats = async () => {
     try {
-      const res = await fetch(`${API_BASE}/stats`);
+      const res = await fetch(`${API_BASE}/stats`, {
+        headers: { 'Authorization': `Bearer ${getToken()}` }
+      });
       const data = await res.json();
       setStats(data);
     } catch (err) {
@@ -136,7 +156,10 @@ function App() {
     try {
       const res = await fetch(`${API_BASE}/send`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getToken()}` 
+        },
         body: JSON.stringify({ ...emailForm, sender: user.email })
       });
       const data = await res.json();
@@ -165,6 +188,22 @@ function App() {
     }
   };
 
+  const handleOpenEmail = async (email) => {
+    setSelectedEmail(email);
+    if (!email.is_read && folder !== 'sent') {
+      try {
+        await fetch(`${API_BASE}/emails/${email.id}/read`, { 
+          method: 'PATCH',
+          headers: { 'Authorization': `Bearer ${getToken()}` }
+        });
+        // Update local state to remove bold immediatey
+        setEmails(prev => prev.map(e => e.id === email.id ? { ...e, is_read: true } : e));
+      } catch (err) {
+        console.error("Mark as read error", err);
+      }
+    }
+  };
+
   // --- Big Data Logic ---
   const handleFileUpload = async (file) => {
     if (!file) return;
@@ -173,6 +212,7 @@ function App() {
     try {
       const res = await fetch(`${API_BASE}/upload-csv`, {
         method: 'POST',
+        headers: { 'Authorization': `Bearer ${getToken()}` },
         body: formData
       });
       const data = await res.json();
@@ -248,9 +288,42 @@ function App() {
   }
 
   const chartData = [
-    { name: 'Hợp lệ (Ham)', value: stats.ham, color: '#1e8e3e' },
-    { name: 'Thư rác (Spam)', value: stats.spam, color: '#d93025' }
+    { name: 'Hộp thư (Inbox)', value: stats.ham || 0, color: '#1e8e3e' },
+    { name: 'Thư rác (Spam)', value: stats.spam || 0, color: '#d93025' },
+    { name: 'Quảng cáo (Ads)', value: stats.ads || 0, color: '#fbbc04' },
+    { name: 'Mạng xã hội (Social)', value: stats.social || 0, color: '#1a73e8' }
   ];
+
+  if (user && user.role === 'admin') {
+    return (
+      <div className="app-container">
+        <div className="sidebar">
+          <div style={{ padding: '16px', fontWeight: 500, fontSize: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <ShieldAlert color="#d93025" /> Admin Panel
+          </div>
+          <div className="nav-item active"><BarChart2 size={20} /> Quản lý hệ thống</div>
+          <div style={{ marginTop: 'auto', borderTop: '1px solid var(--border-color)', padding: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+              <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#d93025', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px' }}>
+                A
+              </div>
+              <div style={{ fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <strong>{user.username}</strong><br />
+                <span style={{ color: 'var(--text-secondary)' }}>{user.email}</span>
+              </div>
+            </div>
+            <button className="nav-item" style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '4px' }} onClick={logout}>
+              <LogOut size={16} /> Đăng xuất
+            </button>
+          </div>
+        </div>
+        <div className="main-content" style={{ padding: '40px' }}>
+          <h1>Trang quản lý dành cho Admin</h1>
+          <p>Chào mừng {user.username}. Tính năng này sẽ được thiết kế và phát triển sau.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app-container">
@@ -270,6 +343,16 @@ function App() {
           <Mail size={20} /> Hộp thư đến
         </div>
 
+        <div className={`nav-item ${view === 'mailbox' && folder === 'ads' ? 'active' : ''}`}
+          onClick={() => { setView('mailbox'); setFolder('ads'); setSelectedEmail(null); }}>
+          <MailIcon size={20} /> Quảng cáo
+        </div>
+
+        <div className={`nav-item ${view === 'mailbox' && folder === 'social' ? 'active' : ''}`}
+          onClick={() => { setView('mailbox'); setFolder('social'); setSelectedEmail(null); }}>
+          <MailIcon size={20} /> Mạng xã hội
+        </div>
+
         <div className={`nav-item ${view === 'mailbox' && folder === 'spam' ? 'active' : ''}`}
           onClick={() => { setView('mailbox'); setFolder('spam'); setSelectedEmail(null); }}>
           <ShieldAlert size={20} /> Thư rác
@@ -282,7 +365,7 @@ function App() {
 
         <div className={`nav-item ${view === 'analysis' ? 'active' : ''}`}
           onClick={() => setView('analysis')}>
-          <BarChart2 size={20} /> Phân tích Big Data
+          <BarChart2 size={20} /> Phân tích Mail
         </div>
 
         <div style={{ marginTop: 'auto', borderTop: '1px solid var(--border-color)', padding: '16px' }}>
@@ -307,17 +390,23 @@ function App() {
           <>
             <div className="toolbar">
               {selectedEmail ? (
-                <button className="icon-btn" onClick={() => setSelectedEmail(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Plus size={18} style={{ transform: 'rotate(45deg)' }} /> Quay lại
+                <button className="icon-btn back-btn" onClick={() => setSelectedEmail(null)} title="Quay lại">
+                  <ArrowLeft size={18} />
                 </button>
               ) : (
-                <RefreshCw size={18} className="icon-btn" onClick={fetchEmails} style={{ cursor: 'pointer' }} />
+                <button className="icon-btn" onClick={fetchEmails} title="Tải lại">
+                  <RefreshCw size={18} />
+                </button>
               )}
               <span style={{ fontWeight: 500 }}>
-                {selectedEmail ? 'Chi tiết thư' : (folder === 'inbox' ? 'Hộp thư đến' : folder === 'sent' ? 'Thư đã gửi' : 'Thư rác')}
+                {selectedEmail ? 'Chi tiết thư' : (
+                  folder === 'inbox' ? 'Hộp thư đến' : 
+                  folder === 'ads' ? 'Quảng cáo' :
+                  folder === 'social' ? 'Mạng xã hội' :
+                  folder === 'sent' ? 'Thư đã gửi' : 'Thư rác')}
               </span>
             </div>
-            
+
             <div className="email-list">
               {selectedEmail ? (
                 <div className="email-detail">
@@ -340,8 +429,8 @@ function App() {
                 </div>
               ) : (
                 <>
-                  {emails.filter(e => folder === 'spam' ? e.is_spam : (folder === 'sent' ? true : !e.is_spam)).map(email => (
-                    <div key={email.id} className="email-item" onClick={() => setSelectedEmail(email)}>
+                  {emails.filter(e => folder === 'sent' ? true : e.category === folder).map(email => (
+                    <div key={email.id} className={`email-item ${(!email.is_read && folder !== 'sent') ? 'unread' : ''}`} onClick={() => handleOpenEmail(email)}>
                       <div className="email-sender">
                         {folder === 'sent' ? (email.recipient_name || email.recipient) : (email.sender_name || email.sender)}
                       </div>
@@ -350,12 +439,13 @@ function App() {
                         <span className="email-body"> — {email.body}</span>
                       </div>
                       <div className="email-time">
-                        {parseDate(email.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                        {formatEmailTime(email.created_at)}
                       </div>
-                      {email.is_spam && folder !== 'spam' && <span className="badge spam-badge">SPAM</span>}
+                      {email.category === 'spam' && folder !== 'spam' && <span className="badge spam-badge">SPAM</span>}
+                      {email.category === 'ads' && folder !== 'ads' && <span className="badge" style={{backgroundColor: '#fbbc04', color: 'white'}}>ADS</span>}
                     </div>
                   ))}
-                  {emails.filter(e => folder === 'spam' ? e.is_spam : (folder === 'sent' ? true : !e.is_spam)).length === 0 && (
+                  {emails.filter(e => folder === 'sent' ? true : e.category === folder).length === 0 && (
                     <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
                       Không có thư!
                     </div>
@@ -391,14 +481,22 @@ function App() {
                   <div className="stat-label">Tổng số email đã xử lý</div>
                   <div className="stat-value">{stats.total.toLocaleString()}</div>
                 </div>
-                <div style={{ display: 'flex', gap: '20px' }}>
+                <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
                   <div className="stat-item">
-                    <div className="stat-label">Hợp lệ</div>
-                    <div className="stat-value" style={{ color: '#1e8e3e', fontSize: '24px' }}>{stats.ham.toLocaleString()}</div>
+                    <div className="stat-label">Hộp thư</div>
+                    <div className="stat-value" style={{ color: '#1e8e3e', fontSize: '24px' }}>{(stats.ham || 0).toLocaleString()}</div>
                   </div>
                   <div className="stat-item">
                     <div className="stat-label">Thư rác</div>
-                    <div className="stat-value" style={{ color: '#d93025', fontSize: '24px' }}>{stats.spam.toLocaleString()}</div>
+                    <div className="stat-value" style={{ color: '#d93025', fontSize: '24px' }}>{(stats.spam || 0).toLocaleString()}</div>
+                  </div>
+                  <div className="stat-item">
+                    <div className="stat-label">Quảng cáo</div>
+                    <div className="stat-value" style={{ color: '#fbbc04', fontSize: '24px' }}>{(stats.ads || 0).toLocaleString()}</div>
+                  </div>
+                  <div className="stat-item">
+                    <div className="stat-label">Mạng xã hội</div>
+                    <div className="stat-value" style={{ color: '#1a73e8', fontSize: '24px' }}>{(stats.social || 0).toLocaleString()}</div>
                   </div>
                 </div>
               </div>
