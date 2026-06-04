@@ -2,7 +2,8 @@ from pyspark.sql import SparkSession
 from pyspark.ml.feature import Tokenizer, StopWordsRemover, HashingTF, IDF
 from pyspark.ml.classification import NaiveBayes
 from pyspark.ml import Pipeline
-from pyspark.sql.functions import col, concat_ws, coalesce, lit
+from pyspark.ml.evaluation import MulticlassClassificationEvaluator
+from pyspark.sql.functions import col, concat_ws, coalesce, lit, when
 import os
 
 def train_from_db():
@@ -34,8 +35,8 @@ def train_from_db():
             return
 
         # 2. Pre-process
-        # Convert is_spam boolean to double label
-        df = df.withColumn("label", col("is_spam").cast("double"))
+        # Convert category to double label (spam = 1.0, others = 0.0)
+        df = df.withColumn("label", when(col("category") == "spam", 1.0).otherwise(0.0))
         
         # Combined subject and message, handling nulls
         df = df.withColumn("text", 
@@ -57,8 +58,34 @@ def train_from_db():
 
         pipeline = Pipeline(stages=[tokenizer, remover, hashingTF, idf, nb])
 
-        # 4. Train Model
-        print(f"Retraining model on {count} records...")
+        # 4. Evaluate and Train Model
+        if count >= 20:
+            print("Evaluating model accuracy...")
+            # Split data for evaluation
+            train_df, test_df = df.randomSplit([0.8, 0.2], seed=42)
+            
+            # Fit model on training subset
+            eval_model = pipeline.fit(train_df)
+            
+            # Predict on testing subset
+            predictions = eval_model.transform(test_df)
+            
+            # Evaluate metrics
+            evaluator_acc = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="accuracy")
+            evaluator_f1 = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="f1")
+            
+            accuracy = evaluator_acc.evaluate(predictions)
+            f1_score = evaluator_f1.evaluate(predictions)
+            
+            print(f"=== Model Evaluation ===")
+            print(f"Accuracy: {accuracy * 100:.2f}%")
+            print(f"F1-Score: {f1_score * 100:.2f}%")
+            print(f"=========================")
+        else:
+            print("Not enough records for reliable train/test split evaluation. Skipping evaluation phase.")
+
+        # Train final model on 100% of the data for maximum coverage
+        print(f"Retraining final model on all {count} records...")
         model = pipeline.fit(df)
 
         # 5. Save Model

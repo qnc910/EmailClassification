@@ -13,9 +13,10 @@ services:
       timeout: 5s
       retries: 5
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_data:/var/lib/postgresql/data
     deploy:
       resources:
         limits:
@@ -51,7 +52,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: 512M
 
   frontend:
     build: ./frontend
@@ -95,6 +96,7 @@ services:
       - ./spark:/opt/bitnami/spark/scripts
       - ./models:/opt/bitnami/spark/models
       - ./uploads:/opt/bitnami/spark/uploads
+      - ./spark/checkpoints:/tmp/spark_checkpoint_uploads
     command: >
       spark-submit 
       --packages org.postgresql:postgresql:42.7.2 
@@ -102,4 +104,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1200M
+          memory: 2048M
+
+volumes:
+  postgres_data:
